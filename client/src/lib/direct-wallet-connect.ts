@@ -6,6 +6,22 @@ import { SiweMessage } from 'siwe';
  * without relying on the web3modal library
  */
 
+// Define Ethereum provider interface for TypeScript
+interface EthereumProvider {
+  isMetaMask?: boolean;
+  request: (request: { method: string; params?: Array<any> }) => Promise<any>;
+  on(event: string, listener: (...args: any[]) => void): void;
+  removeListener(event: string, listener: (...args: any[]) => void): void;
+  selectedAddress?: string;
+}
+
+// Add Ethereum property to window type
+declare global {
+  interface Window {
+    ethereum?: EthereumProvider;
+  }
+}
+
 // Check if MetaMask or similar injected provider is available
 export function isWalletAvailable(): boolean {
   return typeof window !== 'undefined' && !!window.ethereum;
@@ -54,26 +70,38 @@ export async function connectWallet() {
 
 // Create a SIWE message
 export function createSiweMessage(address: string, chainId: number) {
-  // Prepare the message data
-  const domain = window.location.host;
-  const origin = window.location.origin;
-  const statement = 'Sign in with Ethereum to SecureAuth Platform';
-  const now = new Date();
-  const expirationTime = new Date(now.getTime() + 1 * 60 * 60 * 1000); // 1 hour from now
-  const nonce = Math.floor(Math.random() * 1000000).toString();
-  
-  return new SiweMessage({
-    domain,
-    address,
-    statement,
-    uri: origin,
-    version: '1',
-    chainId,
-    nonce,
-    issuedAt: now.toISOString(),
-    expirationTime: expirationTime.toISOString(),
-    resources: ['https://secureauth.example/terms', 'https://secureauth.example/privacy'],
-  });
+  try {
+    console.log('Creating SIWE message with:', { address, chainId });
+    
+    // Prepare the message data
+    const domain = window.location.host;
+    const origin = window.location.origin;
+    const statement = 'Sign in with Ethereum to SecureAuth Platform';
+    const now = new Date();
+    const expirationTime = new Date(now.getTime() + 1 * 60 * 60 * 1000); // 1 hour from now
+    const nonce = Math.floor(Math.random() * 1000000).toString();
+    
+    // Build the message with simpler parameters first
+    const message = new SiweMessage({
+      domain,
+      address,
+      statement,
+      uri: origin,
+      version: '1',
+      chainId,
+      nonce
+    });
+    
+    // Set these optionally to avoid potential compatibility issues
+    message.issuedAt = now.toISOString();
+    
+    console.log('SIWE message created successfully:', message);
+    
+    return message;
+  } catch (error) {
+    console.error('Error creating SIWE message:', error);
+    throw new Error(`Could not create authentication message: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
 }
 
 // Sign a message with the signer
