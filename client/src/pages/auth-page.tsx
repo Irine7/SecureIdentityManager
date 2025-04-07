@@ -1,21 +1,11 @@
 import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Moon, Sun, Wallet } from "lucide-react";
+import { Moon, Sun, Wallet, AlertCircle } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
-import Web3Modal from "web3modal";
 import { ethers } from "ethers";
 import { SiweMessage } from "siwe";
-// Import our polyfills and helpers
-import { 
-  Buffer, 
-  generateNonce, 
-  formatAddress, 
-  getRpcConfig, 
-  getChainName,
-  SUPPORTED_CHAINS
-} from "@/lib/web3-polyfills";
 
 export default function AuthPage() {
   const [activeTab, setActiveTab] = useState<"login" | "register">("login");
@@ -39,44 +29,23 @@ export default function AuthPage() {
   const [twoFactorToken, setTwoFactorToken] = useState("");
   
   // Web3 state
-  const [web3Modal, setWeb3Modal] = useState<Web3Modal | null>(null);
   const [isWeb3Loading, setIsWeb3Loading] = useState(false);
+  const [isWalletAvailable, setIsWalletAvailable] = useState(false);
   
-  // Initialize Web3Modal with our helper utility
+  // Check if wallet is available in the browser
   useEffect(() => {
-    // Ensure global Buffer is available
-    window.Buffer = Buffer;
-    
-    const initializeWeb3Modal = async () => {
+    const checkWalletAvailability = async () => {
       try {
-        // Import our web3 modal helper
-        const { createWeb3Modal } = await import('@/lib/web3-modal-helper');
-        
-        // Create a new Web3Modal instance using our helper
-        try {
-          const modal = await createWeb3Modal();
-          setWeb3Modal(modal);
-          console.log("Web3Modal initialized successfully");
-        } catch (modalError) {
-          console.error("Error creating Web3Modal instance:", modalError);
-          toast({
-            title: "Web3 Error",
-            description: "Could not initialize wallet connection. Please try again later.",
-            variant: "destructive",
-          });
-        }
+        // Import our direct wallet connector
+        const { isWalletAvailable } = await import('@/lib/direct-wallet-connect');
+        setIsWalletAvailable(isWalletAvailable());
       } catch (error) {
-        console.error("Failed to load Web3Modal dependencies:", error);
-        toast({
-          title: "Web3 Error",
-          description: "Failed to load wallet connection dependencies.",
-          variant: "destructive",
-        });
+        console.error("Error checking wallet availability:", error);
       }
     };
     
-    initializeWeb3Modal();
-  }, [toast]); // Add toast to dependencies
+    checkWalletAvailability();
+  }, []);
 
   const toggleDarkMode = () => {
     setIsDarkMode(!isDarkMode);
@@ -209,10 +178,10 @@ export default function AuthPage() {
   };
   
   const handleWeb3Login = async () => {
-    if (!web3Modal) {
+    if (!isWalletAvailable) {
       toast({
         title: "Web3 Error",
-        description: "Web3Modal not initialized",
+        description: "No Ethereum wallet detected. Please install MetaMask or another compatible wallet.",
         variant: "destructive",
       });
       return;
@@ -223,62 +192,65 @@ export default function AuthPage() {
     try {
       console.log("Starting Web3 login process...");
       
-      // Import the helper functions
-      const { connectWallet, createSiweMessage, signMessage } = await import('@/lib/web3-modal-helper');
+      // Import our direct wallet connector methods
+      const { 
+        connectWallet, 
+        createSiweMessage, 
+        signMessage, 
+        setupWalletListeners,
+        formatAddress,
+        getChainName 
+      } = await import('@/lib/direct-wallet-connect');
       
-      // First connect the wallet using our helper
       try {
-        // Clear cached provider first
-        if (web3Modal.cachedProvider) {
-          web3Modal.clearCachedProvider();
-        }
-        
-        // Connect and get account info
-        const { signer, address, chainId, instance } = await connectWallet(web3Modal);
-        
-        // Set up event listeners for wallet events
-        instance.on("accountsChanged", (accounts: string[]) => {
-          console.log("Account changed:", accounts[0]);
-          toast({
-            title: "Account Changed",
-            description: `Switched to account: ${formatAddress(accounts[0])}`,
-          });
-        });
-        
-        instance.on("chainChanged", (changedChainId: number) => {
-          console.log("Chain changed:", changedChainId);
-          toast({
-            title: "Network Changed",
-            description: `Switched to ${getChainName(changedChainId)}`,
-          });
-        });
-        
-        instance.on("disconnect", () => {
-          console.log("Wallet disconnected");
-          toast({
-            title: "Wallet Disconnected",
-            description: "Your wallet has been disconnected",
-            variant: "destructive",
-          });
-          web3Modal.clearCachedProvider();
-        });
-        
+        // Connect directly to the wallet
+        const { signer, address, chainId } = await connectWallet();
         console.log(`Connected to address: ${address} on chain: ${chainId}`);
         
-        // Create the SIWE message
+        // Set up event listeners
+        setupWalletListeners(
+          // Account changed
+          (accounts: string[]) => {
+            if (accounts.length > 0) {
+              console.log("Account changed:", accounts[0]);
+              toast({
+                title: "Account Changed",
+                description: `Switched to account: ${formatAddress(accounts[0])}`,
+              });
+            }
+          },
+          // Chain changed
+          (chainId: string) => {
+            const chainIdNum = parseInt(chainId, 16);
+            console.log("Chain changed:", chainIdNum);
+            toast({
+              title: "Network Changed",
+              description: `Switched to ${getChainName(chainIdNum)}`,
+            });
+          },
+          // Disconnect
+          () => {
+            console.log("Wallet disconnected");
+            toast({
+              title: "Wallet Disconnected",
+              description: "Your wallet has been disconnected",
+              variant: "destructive",
+            });
+          }
+        );
+        
         try {
-          // Create message
-          const statement = 'Sign in with Ethereum to SecureAuth Platform';
-          const message = createSiweMessage(address, chainId, statement);
+          // Create SIWE message for authentication
+          const message = createSiweMessage(address, chainId);
           const messageToSign = message.prepareMessage();
           console.log("Message to sign:", messageToSign);
           
           try {
-            // Sign message
+            // Sign the message with the wallet
             const signature = await signMessage(signer, messageToSign);
             console.log("Signature received:", signature);
             
-            // Send to backend
+            // Send authentication data to backend
             const response = await apiRequest("POST", "/api/web3-login", {
               message: messageToSign,
               signature,
@@ -292,7 +264,7 @@ export default function AuthPage() {
                 description: `Logged in with ${formatAddress(address)}`,
               });
               
-              // Navigate to home page
+              // Navigate to home page on success
               setLocation("/");
             } else {
               const data = await response.json();
@@ -316,7 +288,6 @@ export default function AuthPage() {
                 variant: "destructive",
               });
             }
-            web3Modal.clearCachedProvider();
           }
         } catch (messageError: any) {
           console.error("SIWE message error:", messageError);
@@ -348,8 +319,6 @@ export default function AuthPage() {
           description: errorMessage,
           variant: "destructive",
         });
-        
-        web3Modal.clearCachedProvider();
       }
     } catch (error: any) {
       console.error("Overall Web3 login process error:", error);

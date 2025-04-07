@@ -4,17 +4,23 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1" />
     
+    <!-- Direct loading of Web3Modal required libraries -->
+    <script src="https://cdn.jsdelivr.net/npm/buffer@6.0.3/index.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/process@0.11.10/browser.min.js"></script>
+    
     <!-- Polyfills for Web3 - Enhanced for better compatibility -->
     <script>
-      // Global object polyfill for module compatibility
+      // Create global references
       window.global = window;
       
-      // Process polyfill for Node.js compatibility
-      window.process = window.process || {
+      // Use Buffer from CDN explicitly
+      window.Buffer = Buffer.Buffer;
+      
+      // Make a more complete process object
+      window.process = process || {
         env: { 
           DEBUG: undefined, 
           NODE_ENV: 'production',
-          // Add other environment variables that might be needed
           BROWSER: true
         },
         version: '',
@@ -22,26 +28,21 @@
         browser: true
       };
       
-      // Fix for Buffer not being available during early loading
-      window.Buffer = window.Buffer || [];
-      window.Buffer.isBuffer = function() { return false; };
-      window.Buffer.from = window.Buffer.from || function() { return []; };
-      window.Buffer.alloc = window.Buffer.alloc || function() { return []; };
+      // Other polyfills
+      window.setImmediate = window.setTimeout;
+      window.clearImmediate = window.clearTimeout;
       
-      // Stream polyfill
-      window.Stream = function() {};
-      
-      // Define a safe console that works in older browsers
-      if (!window.console) window.console = {
-        log: function() {},
-        error: function() {},
-        warn: function() {}
-      };
-    </script>
-    <!-- Proper Buffer implementation loaded asynchronously -->
-    <script type="module">
-      import { Buffer } from 'buffer';
-      window.Buffer = Buffer;
+      // Create stable window.ethereum for Metamask checks
+      if (typeof window.ethereum === 'undefined') {
+        window.ethereum = {
+          isMetaMask: false,
+          request: function() { 
+            return Promise.reject(new Error('MetaMask not installed')); 
+          },
+          on: function() {},
+          removeListener: function() {}
+        };
+      }
     </script>
   </head>
   <body>
