@@ -1,10 +1,12 @@
 import { users, payments, sessions, type User, type InsertUser, type Payment } from "@shared/schema";
-import { drizzle } from "drizzle-orm/neon-serverless";
-import { neonConfig, Pool } from "@neondatabase/serverless";
 import memorystore from "memorystore";
 import session from "express-session";
+import { db } from "./db";
+import { eq, desc } from "drizzle-orm";
+import connectPgSimple from "connect-pg-simple";
 
 const MemoryStore = memorystore(session);
+const PgStore = connectPgSimple(session);
 
 // Interface for storage operations
 export interface IStorage {
@@ -159,47 +161,47 @@ export class MemStorage implements IStorage {
 
 // Database storage implementation for production
 export class DatabaseStorage implements IStorage {
-  private db: ReturnType<typeof drizzle>;
   public sessionStore: session.Store;
 
   constructor() {
-    neonConfig.fetchConnectionCache = true;
-    
-    const pool = new Pool({ connectionString: process.env.DATABASE_URL });
-    this.db = drizzle(pool);
-    
-    // For production, use PostgreSQL session store
-    this.sessionStore = new MemoryStore({
-      checkPeriod: 86400000, // 24 hours
+    // Set up PostgreSQL session store
+    this.sessionStore = new PgStore({
+      conString: process.env.DATABASE_URL,
+      tableName: 'sessions',
+      createTableIfMissing: true
     });
   }
 
   async getUser(id: number): Promise<User | undefined> {
-    const results = await this.db.select().from(users).where({ id }).limit(1);
+    const results = await db
+      .select()
+      .from(users)
+      .where(eq(users.id, id))
+      .limit(1);
     return results[0];
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    const results = await this.db
+    const results = await db
       .select()
       .from(users)
-      .where({ username })
+      .where(eq(users.username, username))
       .limit(1);
     return results[0];
   }
 
   async getUserByEmail(email: string): Promise<User | undefined> {
-    const results = await this.db
+    const results = await db
       .select()
       .from(users)
-      .where({ email })
+      .where(eq(users.email, email))
       .limit(1);
     return results[0];
   }
 
   async createUser(userData: InsertUser): Promise<User> {
     const now = new Date();
-    const result = await this.db
+    const result = await db
       .insert(users)
       .values({
         ...userData,
@@ -216,10 +218,10 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateUser(id: number, updates: Partial<User>): Promise<User> {
-    const result = await this.db
+    const result = await db
       .update(users)
       .set(updates)
-      .where({ id })
+      .where(eq(users.id, id))
       .returning();
     
     if (!result[0]) {
@@ -230,18 +232,18 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getAllUsers(): Promise<User[]> {
-    return await this.db.select().from(users);
+    return await db.select().from(users);
   }
 
   async updateLastLogin(id: number): Promise<void> {
-    await this.db
+    await db
       .update(users)
       .set({ lastLogin: new Date() })
-      .where({ id });
+      .where(eq(users.id, id));
   }
 
   async createPayment(paymentData: Omit<Payment, 'id'>): Promise<Payment> {
-    const result = await this.db
+    const result = await db
       .insert(payments)
       .values(paymentData)
       .returning();
@@ -249,27 +251,27 @@ export class DatabaseStorage implements IStorage {
   }
 
   async getUserPayments(userId: number): Promise<Payment[]> {
-    return await this.db
+    return await db
       .select()
       .from(payments)
-      .where({ userId })
-      .orderBy({ date: "desc" });
+      .where(eq(payments.userId, userId))
+      .orderBy(desc(payments.date));
   }
 
   async getUserRecentPayments(userId: number, limit: number = 5): Promise<Payment[]> {
-    return await this.db
+    return await db
       .select()
       .from(payments)
-      .where({ userId })
-      .orderBy({ date: "desc" })
+      .where(eq(payments.userId, userId))
+      .orderBy(desc(payments.date))
       .limit(limit);
   }
 
   async getAllPayments(): Promise<Payment[]> {
-    return await this.db
+    return await db
       .select()
       .from(payments)
-      .orderBy({ date: "desc" });
+      .orderBy(desc(payments.date));
   }
 
   async updateStripeCustomerId(userId: number, customerId: string): Promise<User> {

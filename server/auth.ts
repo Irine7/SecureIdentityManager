@@ -10,6 +10,25 @@ import { storage } from "./storage";
 import { User as SelectUser, loginUserSchema, insertUserSchema, verify2FASchema } from "@shared/schema";
 import speakeasy from "speakeasy";
 import { toDataURL } from "qrcode";
+import { IVerifyOptions } from "passport-local";
+
+// Extended verification options for our 2FA flow
+interface Extended2FAVerifyOptions extends IVerifyOptions {
+  requires2FA?: boolean;
+  userId?: number;
+}
+
+// OAuth profile types
+interface OAuthProfile {
+  id: string;
+  displayName: string;
+  username?: string;
+  emails?: Array<{value: string}>;
+  name?: {
+    givenName?: string;
+    familyName?: string;
+  };
+}
 
 declare global {
   namespace Express {
@@ -65,11 +84,12 @@ export function setupAuth(app: Express) {
         
         // If 2FA is enabled, don't fully authenticate yet
         if (user.is2FAEnabled) {
-          return done(null, false, { 
-            requires2FA: true, 
-            userId: user.id,
+          const options: Extended2FAVerifyOptions = { 
             message: "2FA verification required" 
-          });
+          };
+          options.requires2FA = true;
+          options.userId = user.id;
+          return done(null, false, options);
         }
         
         // Update last login time
@@ -91,15 +111,19 @@ export function setupAuth(app: Express) {
           clientSecret: process.env.GOOGLE_CLIENT_SECRET,
           callbackURL: "/auth/google/callback",
         },
-        async (accessToken, refreshToken, profile, done) => {
+        async (accessToken: string, refreshToken: string, profile: OAuthProfile, done: Function) => {
           try {
-            let user = await storage.getUserByEmail(profile.emails![0].value);
+            if (!profile.emails || profile.emails.length === 0) {
+              return done(new Error("Email access is required"));
+            }
+            
+            let user = await storage.getUserByEmail(profile.emails[0].value);
             
             if (!user) {
               // Create a new user
               user = await storage.createUser({
                 username: profile.displayName.replace(/\s+/g, "") + Math.floor(Math.random() * 1000),
-                email: profile.emails![0].value,
+                email: profile.emails[0].value,
                 password: await hashPassword(randomBytes(16).toString("hex")),
                 firstName: profile.name?.givenName || "",
                 lastName: profile.name?.familyName || "",
@@ -128,7 +152,7 @@ export function setupAuth(app: Express) {
           callbackURL: "/auth/github/callback",
           scope: ["user:email"],
         },
-        async (accessToken, refreshToken, profile, done) => {
+        async (accessToken: string, refreshToken: string, profile: OAuthProfile, done: Function) => {
           try {
             const email = profile.emails && profile.emails[0] ? profile.emails[0].value : null;
             
@@ -218,7 +242,7 @@ export function setupAuth(app: Express) {
       return res.status(400).json({ message: "Invalid input data", errors: result.error.errors });
     }
 
-    passport.authenticate("local", (err, user, info) => {
+    passport.authenticate("local", (err: Error | null, user: Express.User | false, info: Extended2FAVerifyOptions) => {
       if (err) return next(err);
       
       if (!user) {
