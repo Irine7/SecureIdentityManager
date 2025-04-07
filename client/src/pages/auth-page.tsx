@@ -33,12 +33,39 @@ export default function AuthPage() {
   const [web3Modal, setWeb3Modal] = useState<Web3Modal | null>(null);
   const [isWeb3Loading, setIsWeb3Loading] = useState(false);
   
-  // Initialize Web3Modal
+  // Initialize Web3Modal with multiple chains
   useEffect(() => {
+    const providerOptions = {
+      injected: {
+        display: {
+          name: "Metamask",
+          description: "Connect with MetaMask"
+        },
+        package: null
+      },
+      walletconnect: {
+        display: {
+          name: "WalletConnect",
+          description: "Connect with WalletConnect"
+        },
+        package: null,
+        options: {
+          infuraId: "INFURA_ID" // We'll use a default here since it's just for display
+        }
+      }
+    };
+    
     const newWeb3Modal = new Web3Modal({
-      network: "mainnet",
+      network: "any", // Allow all networks
       cacheProvider: true,
-      providerOptions: {}
+      providerOptions: providerOptions,
+      theme: {
+        background: "rgb(39, 49, 56)",
+        main: "rgb(199, 199, 199)",
+        secondary: "rgb(136, 136, 136)",
+        border: "rgba(195, 195, 195, 0.14)",
+        hover: "rgb(16, 26, 32)"
+      }
     });
     setWeb3Modal(newWeb3Modal);
   }, []);
@@ -174,21 +201,58 @@ export default function AuthPage() {
   };
   
   const handleWeb3Login = async () => {
-    if (!web3Modal) return;
+    if (!web3Modal) {
+      toast({
+        title: "Web3 Error",
+        description: "Web3Modal not initialized",
+        variant: "destructive",
+      });
+      return;
+    }
     
     setIsWeb3Loading(true);
     
     try {
       // Connect to the wallet
       const instance = await web3Modal.connect();
+      
+      // Handle provider events to track connection status
+      instance.on("accountsChanged", (accounts: string[]) => {
+        console.log("Account changed:", accounts[0]);
+      });
+      
+      instance.on("chainChanged", (chainId: number) => {
+        console.log("Chain changed:", chainId);
+      });
+      
+      instance.on("disconnect", (code: number, reason: string) => {
+        console.log("Disconnected:", code, reason);
+        toast({
+          title: "Wallet Disconnected",
+          description: "Your wallet has been disconnected",
+          variant: "destructive",
+        });
+      });
+      
+      // Create ethers provider
       const provider = new ethers.BrowserProvider(instance);
+      
+      // Get signer and address
       const signer = await provider.getSigner();
       const address = await signer.getAddress();
+      
+      // Get chain information
+      const network = await provider.getNetwork();
+      const chainId = Number(network.chainId);
+      
+      console.log("Connected to chain:", network.name, "chainId:", chainId);
       
       // Create a SIWE message
       const domain = window.location.host;
       const origin = window.location.origin;
       const statement = 'Sign in with Ethereum to SecureAuth Platform';
+      const now = new Date();
+      const expirationTime = new Date(now.getTime() + 1 * 60 * 60 * 1000); // 1 hour from now
       
       const message = new SiweMessage({
         domain,
@@ -196,38 +260,78 @@ export default function AuthPage() {
         statement,
         uri: origin,
         version: '1',
-        chainId: Number((await provider.getNetwork()).chainId),
+        chainId,
         nonce: Math.floor(Math.random() * 1000000).toString(),
+        issuedAt: now.toISOString(),
+        expirationTime: expirationTime.toISOString(),
+        resources: ['https://secureauth.example/terms', 'https://secureauth.example/privacy'],
       });
       
+      // Prepare message for signing
       const messageToSign = message.prepareMessage();
+      console.log("Message to sign:", messageToSign);
       
-      // Sign the message
-      const signature = await signer.signMessage(messageToSign);
-      
-      // Send to the backend
-      const response = await apiRequest("POST", "/api/web3-login", {
-        message: messageToSign,
-        signature,
-        address
-      });
-      
-      if (response.ok) {
-        toast({
-          title: "Success",
-          description: "Web3 login successful!",
+      try {
+        // Sign the message
+        const signature = await signer.signMessage(messageToSign);
+        console.log("Signature:", signature);
+        
+        // Send to the backend
+        const response = await apiRequest("POST", "/api/web3-login", {
+          message: messageToSign,
+          signature,
+          address
         });
-        setLocation("/");
-      } else {
-        const data = await response.json();
-        throw new Error(data.message || "Web3 login failed");
+        
+        if (response.ok) {
+          toast({
+            title: "Success",
+            description: "Web3 login successful!",
+          });
+          setLocation("/");
+        } else {
+          const data = await response.json();
+          throw new Error(data.message || "Web3 login failed");
+        }
+      } catch (error) {
+        // Handle user rejection or signing errors
+        const signError = error as { code?: number; message?: string };
+        console.error("Signing error:", signError);
+        if (signError?.code === 4001) {
+          // User rejected the signature request
+          toast({
+            title: "Signature Rejected",
+            description: "You must sign the message to log in",
+            variant: "destructive",
+          });
+        } else {
+          toast({
+            title: "Signing Error",
+            description: signError instanceof Error ? signError.message : "Error signing message",
+            variant: "destructive",
+          });
+        }
+      }
+    } catch (error) {
+      const connectError = error as { code?: number; message?: string };
+      console.error("Connection error:", connectError);
+      
+      // Provide more specific error messages
+      let errorMessage = "Failed to connect to wallet";
+      
+      if (connectError?.code === 4001) {
+        errorMessage = "You rejected the connect request";
+      } else if (connectError?.message?.includes("user rejected")) {
+        errorMessage = "You rejected the connect request";
+      } else if (connectError?.message?.includes("already processing")) {
+        errorMessage = "Connection request already in progress";
+      } else if (connectError?.message?.includes("not installed")) {
+        errorMessage = "MetaMask not installed. Please install MetaMask to continue";
       }
       
-    } catch (err) {
-      console.error(err);
       toast({
-        title: "Web3 login failed",
-        description: err instanceof Error ? err.message : "An error occurred",
+        title: "Connection Failed",
+        description: errorMessage,
         variant: "destructive",
       });
     } finally {

@@ -265,7 +265,7 @@ export function setupAuth(app: Express) {
     })(req, res, next);
   });
   
-  // Web3 authentication route
+  // Web3 authentication route - supports multiple chains
   app.post("/api/web3-login", async (req, res, next) => {
     try {
       const result = web3LoginSchema.safeParse(req.body);
@@ -277,16 +277,26 @@ export function setupAuth(app: Express) {
       
       // Verify the signature using SIWE
       try {
+        // Parse the message once
         const siweMessage = new SiweMessage(message);
-        const result = await siweMessage.verify({ signature });
+        console.log("Received SIWE message:", siweMessage);
         
-        if (!result.success) {
+        // Log chain information
+        console.log(`Chain ID: ${siweMessage.chainId}, Domain: ${siweMessage.domain}`);
+        
+        // Verify the signature
+        const verificationResult = await siweMessage.verify({ signature });
+        
+        if (!verificationResult.success) {
+          console.error("Verification failed:", verificationResult.error);
           return res.status(401).json({ message: "Invalid signature" });
         }
         
+        console.log("Verification successful");
+        
         // Check that the address matches
-        const parsedMessage = new SiweMessage(message);
-        if (parsedMessage.address.toLowerCase() !== address.toLowerCase()) {
+        if (siweMessage.address.toLowerCase() !== address.toLowerCase()) {
+          console.error("Address mismatch:", siweMessage.address, address);
           return res.status(401).json({ message: "Address mismatch" });
         }
         
