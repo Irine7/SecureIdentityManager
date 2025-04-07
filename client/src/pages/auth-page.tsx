@@ -1,9 +1,12 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Button } from "@/components/ui/button";
-import { Moon, Sun } from "lucide-react";
+import { Moon, Sun, Wallet } from "lucide-react";
 import { apiRequest } from "@/lib/queryClient";
 import { useLocation } from "wouter";
 import { useToast } from "@/hooks/use-toast";
+import Web3Modal from "web3modal";
+import { ethers } from "ethers";
+import { SiweMessage } from "siwe";
 
 export default function AuthPage() {
   const [activeTab, setActiveTab] = useState<"login" | "register">("login");
@@ -25,6 +28,20 @@ export default function AuthPage() {
   const [requiresTwoFactor, setRequiresTwoFactor] = useState(false);
   const [userId, setUserId] = useState<number | null>(null);
   const [twoFactorToken, setTwoFactorToken] = useState("");
+  
+  // Web3 state
+  const [web3Modal, setWeb3Modal] = useState<Web3Modal | null>(null);
+  const [isWeb3Loading, setIsWeb3Loading] = useState(false);
+  
+  // Initialize Web3Modal
+  useEffect(() => {
+    const newWeb3Modal = new Web3Modal({
+      network: "mainnet",
+      cacheProvider: true,
+      providerOptions: {}
+    });
+    setWeb3Modal(newWeb3Modal);
+  }, []);
 
   const toggleDarkMode = () => {
     setIsDarkMode(!isDarkMode);
@@ -153,6 +170,68 @@ export default function AuthPage() {
       });
     } finally {
       setIsLoading(false);
+    }
+  };
+  
+  const handleWeb3Login = async () => {
+    if (!web3Modal) return;
+    
+    setIsWeb3Loading(true);
+    
+    try {
+      // Connect to the wallet
+      const instance = await web3Modal.connect();
+      const provider = new ethers.BrowserProvider(instance);
+      const signer = await provider.getSigner();
+      const address = await signer.getAddress();
+      
+      // Create a SIWE message
+      const domain = window.location.host;
+      const origin = window.location.origin;
+      const statement = 'Sign in with Ethereum to SecureAuth Platform';
+      
+      const message = new SiweMessage({
+        domain,
+        address,
+        statement,
+        uri: origin,
+        version: '1',
+        chainId: Number((await provider.getNetwork()).chainId),
+        nonce: Math.floor(Math.random() * 1000000).toString(),
+      });
+      
+      const messageToSign = message.prepareMessage();
+      
+      // Sign the message
+      const signature = await signer.signMessage(messageToSign);
+      
+      // Send to the backend
+      const response = await apiRequest("POST", "/api/web3-login", {
+        message: messageToSign,
+        signature,
+        address
+      });
+      
+      if (response.ok) {
+        toast({
+          title: "Success",
+          description: "Web3 login successful!",
+        });
+        setLocation("/");
+      } else {
+        const data = await response.json();
+        throw new Error(data.message || "Web3 login failed");
+      }
+      
+    } catch (err) {
+      console.error(err);
+      toast({
+        title: "Web3 login failed",
+        description: err instanceof Error ? err.message : "An error occurred",
+        variant: "destructive",
+      });
+    } finally {
+      setIsWeb3Loading(false);
     }
   };
 
@@ -298,6 +377,26 @@ export default function AuthPage() {
                     </div>
                     <Button type="submit" className="w-full" disabled={isLoading}>
                       {isLoading ? "Logging in..." : "Login"}
+                    </Button>
+                    
+                    <div className="relative my-4">
+                      <div className="absolute inset-0 flex items-center">
+                        <span className="w-full border-t border-gray-300"></span>
+                      </div>
+                      <div className="relative flex justify-center text-sm">
+                        <span className="px-2 bg-white dark:bg-gray-800 text-gray-500">Or continue with</span>
+                      </div>
+                    </div>
+                    
+                    <Button 
+                      type="button"
+                      className="w-full flex items-center justify-center"
+                      onClick={handleWeb3Login}
+                      disabled={isWeb3Loading}
+                      variant="outline"
+                    >
+                      <Wallet className="mr-2 h-4 w-4" />
+                      {isWeb3Loading ? "Connecting..." : "Connect Wallet"}
                     </Button>
                   </form>
                 ) : (

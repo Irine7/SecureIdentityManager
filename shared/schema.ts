@@ -17,6 +17,8 @@ export const users = pgTable("users", {
   stripeSubscriptionId: text("stripe_subscription_id"),
   lastLogin: timestamp("last_login"),
   language: text("language").default("en").notNull(),
+  walletAddress: text("wallet_address"),
+  authType: text("auth_type").default("email").notNull(), // "email" or "web3"
 });
 
 export const payments = pgTable("payments", {
@@ -41,11 +43,19 @@ export const insertUserSchema = createInsertSchema(users).pick({
   email: true,
   firstName: true,
   lastName: true,
+  walletAddress: true,
+  authType: true,
 });
 
 export const loginUserSchema = z.object({
   username: z.string().min(1, "Username is required"),
   password: z.string().min(1, "Password is required"),
+});
+
+export const web3LoginSchema = z.object({
+  address: z.string().min(1, "Wallet address is required"),
+  signature: z.string().min(1, "Signature is required"),
+  message: z.string().min(1, "Message is required"),
 });
 
 export const updateUserSchema = createInsertSchema(users).pick({
@@ -71,6 +81,7 @@ export const verify2FASchema = z.object({
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 export type LoginUser = z.infer<typeof loginUserSchema>;
+export type Web3Login = z.infer<typeof web3LoginSchema>;
 export type UpdateUser = z.infer<typeof updateUserSchema>;
 export type UpdatePassword = z.infer<typeof updatePasswordSchema>;
 export type Verify2FA = z.infer<typeof verify2FASchema>;

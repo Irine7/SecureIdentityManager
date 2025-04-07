@@ -14,6 +14,7 @@ export interface IStorage {
   getUser(id: number): Promise<User | undefined>;
   getUserByUsername(username: string): Promise<User | undefined>;
   getUserByEmail(email: string): Promise<User | undefined>;
+  getUserByWalletAddress(walletAddress: string): Promise<User | undefined>;
   createUser(user: InsertUser): Promise<User>;
   updateUser(id: number, updates: Partial<User>): Promise<User>;
   getAllUsers(): Promise<User[]>;
@@ -68,6 +69,12 @@ export class MemStorage implements IStorage {
       (user) => user.email.toLowerCase() === email.toLowerCase()
     );
   }
+  
+  async getUserByWalletAddress(walletAddress: string): Promise<User | undefined> {
+    return Array.from(this.userStorage.values()).find(
+      (user) => user.walletAddress?.toLowerCase() === walletAddress.toLowerCase()
+    );
+  }
 
   async createUser(userData: InsertUser): Promise<User> {
     const id = this.currentUserId++;
@@ -85,6 +92,8 @@ export class MemStorage implements IStorage {
       stripeCustomerId: null,
       stripeSubscriptionId: null,
       language: "en",
+      walletAddress: userData.walletAddress || null,
+      authType: userData.authType || "email",
     };
     this.userStorage.set(id, user);
     return user;
@@ -198,6 +207,15 @@ export class DatabaseStorage implements IStorage {
       .limit(1);
     return results[0];
   }
+  
+  async getUserByWalletAddress(walletAddress: string): Promise<User | undefined> {
+    const results = await db
+      .select()
+      .from(users)
+      .where(eq(users.walletAddress, walletAddress))
+      .limit(1);
+    return results[0];
+  }
 
   async createUser(userData: InsertUser): Promise<User> {
     const now = new Date();
@@ -212,6 +230,8 @@ export class DatabaseStorage implements IStorage {
         isPremium: false,
         lastLogin: now,
         language: "en",
+        walletAddress: userData.walletAddress || null,
+        authType: userData.authType || "email",
       })
       .returning();
     return result[0];

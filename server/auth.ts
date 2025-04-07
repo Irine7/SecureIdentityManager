@@ -7,10 +7,11 @@ import session from "express-session";
 import { scrypt, randomBytes, timingSafeEqual } from "crypto";
 import { promisify } from "util";
 import { storage } from "./storage";
-import { User as SelectUser, loginUserSchema, insertUserSchema, verify2FASchema } from "@shared/schema";
+import { User as SelectUser, loginUserSchema, insertUserSchema, verify2FASchema, web3LoginSchema } from "@shared/schema";
 import speakeasy from "speakeasy";
 import { toDataURL } from "qrcode";
 import { IVerifyOptions } from "passport-local";
+import { SiweMessage } from "siwe";
 
 // Extended verification options for our 2FA flow
 interface Extended2FAVerifyOptions extends IVerifyOptions {
@@ -262,6 +263,63 @@ export function setupAuth(app: Express) {
         return res.status(200).json(userWithoutSensitiveInfo);
       });
     })(req, res, next);
+  });
+  
+  // Web3 authentication route
+  app.post("/api/web3-login", async (req, res, next) => {
+    try {
+      const result = web3LoginSchema.safeParse(req.body);
+      if (!result.success) {
+        return res.status(400).json({ message: "Invalid input data", errors: result.error.errors });
+      }
+      
+      const { address, signature, message } = result.data;
+      
+      // Verify the signature using SIWE
+      try {
+        const siweMessage = new SiweMessage(message);
+        const result = await siweMessage.verify({ signature });
+        
+        if (!result.success) {
+          return res.status(401).json({ message: "Invalid signature" });
+        }
+        
+        // Check that the address matches
+        const parsedMessage = new SiweMessage(message);
+        if (parsedMessage.address.toLowerCase() !== address.toLowerCase()) {
+          return res.status(401).json({ message: "Address mismatch" });
+        }
+        
+        // Check if this wallet address is already registered
+        let user = await storage.getUserByWalletAddress(address);
+        
+        if (!user) {
+          // Create a new user with the wallet address
+          user = await storage.createUser({
+            username: `wallet_${address.slice(0, 8)}`,
+            email: `${address.slice(0, 10)}@wallet.eth`, // Placeholder email
+            password: await hashPassword(randomBytes(16).toString("hex")), // Random password
+            walletAddress: address,
+            authType: "web3"
+          });
+        }
+        
+        // Update last login time
+        await storage.updateLastLogin(user.id);
+        
+        // Log the user in
+        req.login(user, (err) => {
+          if (err) return next(err);
+          const { password, twoFactorSecret, ...userWithoutSensitiveInfo } = user;
+          return res.status(200).json(userWithoutSensitiveInfo);
+        });
+      } catch (err) {
+        console.error("SIWE verification error:", err);
+        return res.status(401).json({ message: "Invalid signature" });
+      }
+    } catch (err) {
+      next(err);
+    }
   });
 
   // Verify 2FA
