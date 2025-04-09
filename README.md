@@ -7,7 +7,7 @@ Secure Identity Manager is an application designed for secure identity and authe
 1. **Clone the repository:**
 
    ```bash
-   git clone <repository_url>
+   git clone https://github.com/Irine7/SecureIdentityManager.git
    cd SecureIdentityManager
    ```
 
