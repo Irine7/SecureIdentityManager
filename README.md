@@ -1,39 +1,39 @@
 # Secure Identity Manager
 
-Secure Identity Manager - это приложение, разработанное для безопасного управления идентификацией и аутентификацией пользователей. Оно использует современный стек технологий для обеспечения надежности и безопасности.
+Secure Identity Manager is an application designed for secure identity and authentication management. It leverages a modern technology stack to ensure reliability and security.
 
-## Установка
+## Installation
 
-1. **Клонируйте репозиторий:**
+1. **Clone the repository:**
 
    ```bash
    git clone <repository_url>
    cd SecureIdentityManager
    ```
 
-2. **Установите зависимости:**
+2. **Install dependencies:**
 
-   Используйте `pnpm` для установки всех необходимых пакетов:
+   Use `pnpm` to install all necessary packages:
 
    ```bash
    pnpm install
    ```
 
-## Скрипты
+## Scripts
 
-- `dev`: Запускает сервер в режиме разработки.
-- `build`: Создает сборку приложения.
-- `start`: Запускает приложение в production режиме.
-- `check`: Проверяет типы с помощью TypeScript.
-- `db:push`: Пушит изменения в базу данных с помощью drizzle-kit.
+- `dev`: Starts the server in development mode.
+- `build`: Builds the application.
+- `start`: Runs the application in production mode.
+- `check`: Checks types using TypeScript.
+- `db:push`: Pushes changes to the database using drizzle-kit.
 
-## Используемые технологии
+## Technologies Used
 
 - **Frontend**: React, Tailwind CSS
-- **Backend**: Express, Passport для аутентификации
-- **База данных**: PostgreSQL
-- **Прочие библиотеки**: Web3 для взаимодействия с блокчейном
+- **Backend**: Express, Passport for authentication
+- **Database**: PostgreSQL
+- **Other Libraries**: Web3 for blockchain interactions
 
-## Лицензия
+## License
 
-Этот проект лицензирован под лицензией MIT.
+This project is licensed under the MIT License.
